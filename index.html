@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Link Intlife with Google</title>
+  <style>
+    :root { --blue: #015291; --blue-light: #81a7bd; --text: #1a1a1a; --muted: #666; --line: #e3e3e3; --error: #d92d20; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; color: var(--text); background: #f5f7f9; }
+    .wrap { max-width: 440px; margin: 0 auto; padding: 24px 16px 40px; }
+    .logo { display: block; margin: 8px auto 20px; height: 44px; }
+    .card { background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 24px 20px; }
+    h1 { font-size: 22px; margin: 0 0 6px; text-align: center; }
+    .sub { text-align: center; color: var(--muted); font-size: 14px; margin: 0 0 20px; }
+    label { display: block; font-size: 14px; font-weight: 600; margin: 14px 0 6px; }
+    input[type=email], input[type=password] { width: 100%; padding: 12px; font-size: 16px; border: 1px solid #ccc; border-radius: 8px; }
+    input:focus { outline: 2px solid var(--blue-light); border-color: var(--blue); }
+    button { width: 100%; padding: 14px; margin-top: 18px; font-size: 16px; font-weight: 600; color: #fff; border: 0; border-radius: 10px; cursor: pointer; background: linear-gradient(135deg, var(--blue-light), var(--blue)); }
+    button:disabled { opacity: .6; cursor: default; }
+    button.secondary { background: #fff; color: var(--text); border: 1px solid #bbb; margin-top: 10px; }
+    .error { display: none; background: #fef3f2; color: var(--error); border: 1px solid #fecdca; border-radius: 8px; padding: 10px 12px; font-size: 14px; margin-top: 14px; }
+    .hidden { display: none; }
+    ul { padding-left: 20px; margin: 10px 0 16px; font-size: 14px; line-height: 1.5; }
+    .signedin { text-align: center; font-size: 14px; color: var(--muted); margin: 0 0 16px; }
+    .signedin a { color: var(--blue); cursor: pointer; text-decoration: underline; }
+    .agree { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; line-height: 1.5; margin: 14px 0; }
+    .agree input { margin-top: 4px; }
+    .notice { font-size: 13px; color: var(--muted); line-height: 1.5; margin: 12px 0 0; }
+    a { color: var(--blue); }
+    .foot { text-align: center; font-size: 13px; color: var(--muted); margin-top: 18px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <img class="logo" src="https://intlife.com.my/wp-content/uploads/2026/08/intlife-logo-4-300x56.png" alt="intlife" />
+
+    <div class="card">
+      <h1>Link Intlife with Google</h1>
+
+      <!-- Shown if the link from Google is missing or invalid -->
+      <div id="invalid" class="hidden">
+        <p class="sub">This link is not valid. Please go back to the Google Home app and try linking Intlife again.</p>
+      </div>
+
+      <!-- Step 1: sign in -->
+      <form id="loginForm" class="hidden" autocomplete="on">
+        <p class="sub">Sign in with your Intlife account to continue.</p>
+        <label for="email">Email</label>
+        <input id="email" type="email" autocomplete="username" required />
+        <label for="password">Password</label>
+        <input id="password" type="password" autocomplete="current-password" required />
+        <div id="loginError" class="error"></div>
+        <button id="loginBtn" type="submit">Sign in</button>
+        <p class="notice">Signed up with Apple or Google? Use the Intlife app instead: <a id="openApp" href="#">Open in Intlife app</a></p>
+      </form>
+
+      <!-- Step 2: consent -->
+      <div id="consent" class="hidden">
+        <p class="signedin">Signed in as <strong id="userEmail"></strong><br /><a id="switchAccount">Use a different account</a></p>
+        <p style="font-size:14px;font-weight:600;margin:0;">Your Intlife account will be linked to Google. Google will be able to:</p>
+        <ul>
+          <li>View and manage all Google-supported Intlife products/devices bound to your Intlife account</li>
+          <li>View details of all devices connected to your Google-supported Intlife products/devices</li>
+          <li>Detect the connection and disconnection of devices to your Google-supported Intlife products/devices</li>
+        </ul>
+        <p class="notice" style="margin-top:0;"><strong>By signing in, you are authorizing Google to control your devices.</strong></p>
+        <label class="agree">
+          <input id="agree" type="checkbox" />
+          <span>I agree to the <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">Google Privacy Policy</a> and the <a href="https://intlife.com.my/privacy-policy/" target="_blank" rel="noopener">Intlife Privacy Policy</a>.</span>
+        </label>
+        <div id="linkError" class="error"></div>
+        <button id="linkBtn" type="button">Agree and link</button>
+        <button id="cancelBtn" type="button" class="secondary">Cancel</button>
+        <p class="notice">You can unlink at any time in your <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener">Google Account</a>.</p>
+      </div>
+    </div>
+
+    <p class="foot">intlife, a brand by 3i Technologies Sdn Bhd &middot; <a href="https://intlife.com.my/privacy-policy/">Privacy Policy</a></p>
+  </div>
+
+  <script>
+    // ---- Settings -----------------------------------------------------------
+    var API_BASE_URL = "https://smarthome-service.intlife.com.my";
+    // Same value as EXPO_PUBLIC_API_KEY in the app's .env. Paste it here before hosting this page.
+    var API_KEY = "PASTE_EXPO_PUBLIC_API_KEY_HERE";
+    // Where the Intlife app opens when someone prefers to link inside the app.
+    var APP_LINK = "com.intlife.smarthome://linking/google-home";
+    // Google only sends users back to these addresses.
+    var ALLOWED_REDIRECTS = [
+      "https://oauth-redirect.googleusercontent.com/r/",
+      "https://oauth-redirect-sandbox.googleusercontent.com/r/"
+    ];
+
+    // ---- Read the request from Google ---------------------------------------
+    var query = new URLSearchParams(window.location.search);
+    var oauth = {
+      response_type: query.get("response_type"),
+      client_id: query.get("client_id"),
+      redirect_uri: query.get("redirect_uri"),
+      scope: query.get("scope") || "",
+      state: query.get("state") || ""
+    };
+
+    var redirectAllowed = !!oauth.redirect_uri && ALLOWED_REDIRECTS.some(function (p) {
+      return oauth.redirect_uri.indexOf(p) === 0;
+    });
+    var requestValid = oauth.response_type === "code" && !!oauth.client_id && redirectAllowed;
+
+    var accessToken = null; // kept in memory only
+    var user = null;
+
+    function $(id) { return document.getElementById(id); }
+    function show(id) { $(id).classList.remove("hidden"); }
+    function hide(id) { $(id).classList.add("hidden"); }
+    function showError(id, msg) { var el = $(id); el.textContent = msg; el.style.display = "block"; }
+    function clearError(id) { $(id).style.display = "none"; }
+
+    function api(path, body, token) {
+      var headers = { "Content-Type": "application/json", "x-api-key": API_KEY };
+      if (token) headers["Authorization"] = "Bearer " + token;
+      return fetch(API_BASE_URL + path, { method: "POST", headers: headers, body: JSON.stringify(body) })
+        .then(function (res) {
+          return res.json().catch(function () { return {}; }).then(function (data) {
+            return { ok: res.ok, data: data };
+          });
+        });
+    }
+
+    function goBackToGoogle(params) {
+      var url = new URL(oauth.redirect_uri);
+      Object.keys(params).forEach(function (k) { url.searchParams.set(k, params[k]); });
+      window.location.href = url.toString();
+    }
+
+    // ---- Start --------------------------------------------------------------
+    if (!requestValid) {
+      show("invalid");
+    } else {
+      show("loginForm");
+      $("openApp").href = APP_LINK + window.location.search;
+    }
+
+    // ---- Step 1: sign in ----------------------------------------------------
+    $("loginForm").addEventListener("submit", function (e) {
+      e.preventDefault();
+      clearError("loginError");
+      $("loginBtn").disabled = true;
+      api("/api/v2/auth/login", {
+        username: $("email").value.trim(),
+        password: $("password").value,
+        platform: "web"
+      }).then(function (r) {
+        $("loginBtn").disabled = false;
+        if (!r.ok || !r.data || !r.data.data || !r.data.data.token) {
+          showError("loginError", "Invalid email or password.");
+          return;
+        }
+        accessToken = r.data.data.token.access_token;
+        user = r.data.data.user;
+        $("password").value = "";
+        $("userEmail").textContent = user.email || $("email").value;
+        hide("loginForm");
+        show("consent");
+      }).catch(function () {
+        $("loginBtn").disabled = false;
+        showError("loginError", "Could not connect. Please check your internet and try again.");
+      });
+    });
+
+    $("switchAccount").addEventListener("click", function () {
+      accessToken = null;
+      user = null;
+      hide("consent");
+      show("loginForm");
+    });
+
+    // ---- Step 2: agree or cancel --------------------------------------------
+    $("linkBtn").addEventListener("click", function () {
+      clearError("linkError");
+      if (!$("agree").checked) {
+        showError("linkError", "Please agree to the Privacy Policy to continue.");
+        return;
+      }
+      $("linkBtn").disabled = true;
+      api("/api/v1/google/home/link", oauth, accessToken).then(function (r) {
+        if (!r.ok) {
+          $("linkBtn").disabled = false;
+          showError("linkError", (r.data && r.data.message) || "Could not link your account. Please try again.");
+          return;
+        }
+        // The backend token endpoint currently expects the user id as the code.
+        goBackToGoogle({ code: user.id, state: oauth.state });
+      }).catch(function () {
+        $("linkBtn").disabled = false;
+        showError("linkError", "Could not connect. Please check your internet and try again.");
+      });
+    });
+
+    $("cancelBtn").addEventListener("click", function () {
+      goBackToGoogle({ error: "access_denied", state: oauth.state });
+    });
+  </script>
+</body>
+</html>
