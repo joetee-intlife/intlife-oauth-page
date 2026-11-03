@@ -28,6 +28,9 @@
     .agree input { margin-top: 4px; }
     .notice { font-size: 13px; color: var(--muted); line-height: 1.5; margin: 12px 0 0; }
     a { color: var(--blue); }
+    button.google { display: flex; align-items: center; justify-content: center; gap: 10px; background: #fff; color: var(--text); border: 1px solid #bbb; margin-top: 0; }
+    .or { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; margin: 18px 0 0; }
+    .or::before, .or::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
     .foot { text-align: center; font-size: 13px; color: var(--muted); margin-top: 18px; }
   </style>
 </head>
@@ -46,13 +49,18 @@
       <!-- Step 1: sign in -->
       <form id="loginForm" class="hidden" autocomplete="on">
         <p class="sub">Sign in with your Intlife account to continue.</p>
+        <button id="googleBtn" type="button" class="google">
+          <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.9 2.4 30.4 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.9 6.1C12.4 13.6 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.5 5.8c4.4-4.1 7.1-10.1 7.1-17.5z"/><path fill="#FBBC05" d="M10.5 28.7A14.5 14.5 0 0 1 9.5 24c0-1.6.3-3.2.8-4.7l-7.9-6.1A24 24 0 0 0 0 24c0 3.9.9 7.5 2.6 10.8l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.5-5.8c-2.1 1.4-4.9 2.3-8.4 2.3-6.3 0-11.6-4.1-13.5-9.8l-7.9 6.1C6.5 42.6 14.6 48 24 48z"/></svg>
+          Sign in with Google
+        </button>
+        <div class="or">or</div>
         <label for="email">Email</label>
         <input id="email" type="email" autocomplete="username" required />
         <label for="password">Password</label>
         <input id="password" type="password" autocomplete="current-password" required />
         <div id="loginError" class="error"></div>
         <button id="loginBtn" type="submit">Sign in</button>
-        <p class="notice">Signed up with Apple or Google? Use the Intlife app instead: <a id="openApp" href="#">Open in Intlife app</a></p>
+        <p class="notice">Signed up with Apple? Use the Intlife app instead: <a id="openApp" href="#">Open in Intlife app</a></p>
       </form>
 
       <!-- Step 2: consent -->
@@ -83,8 +91,10 @@
     // ---- Settings -----------------------------------------------------------
     var API_BASE_URL = "https://smarthome-service.intlife.com.my";
     // Same value as EXPO_PUBLIC_API_KEY in the app's .env. Paste it here before hosting this page.
-    var API_KEY = "PASTE_EXPO_PUBLIC_API_KEY_HERE";
+    var API_KEY = "trU29zwpHb2nkoSSjD4OD3jR7W8309sq3EIpBg7g";
     // Where the Intlife app opens when someone prefers to link inside the app.
+    // Google Cloud "Web application" OAuth client used for Google sign-in (the client ID is not secret).
+    var GOOGLE_CLIENT_ID = "533976637454-3km118rm2vrsocbnb57mpkuqheeaggrt.apps.googleusercontent.com";
     var APP_LINK = "com.intlife.smarthome://linking/google-home";
     // Google only sends users back to these addresses.
     var ALLOWED_REDIRECTS = [
@@ -94,6 +104,17 @@
 
     // ---- Read the request from Google ---------------------------------------
     var query = new URLSearchParams(window.location.search);
+
+    // When Google sends the user back after "Sign in with Google", the original Google Home request
+    // is no longer in the address bar, so it is restored from the saved copy.
+    var pending = null;
+    try { pending = JSON.parse(sessionStorage.getItem("gsi")); } catch (e) {}
+    var googleReturn = !!pending && !!query.get("state") && query.get("state") === pending.state &&
+      (!!query.get("code") || !!query.get("error"));
+    var originalSearch = googleReturn ? pending.search : window.location.search;
+    if (googleReturn) query = new URLSearchParams(originalSearch);
+    var googleParams = googleReturn ? new URLSearchParams(window.location.search) : null;
+
     var oauth = {
       response_type: query.get("response_type"),
       client_id: query.get("client_id"),
@@ -138,7 +159,15 @@
       show("invalid");
     } else {
       show("loginForm");
-      $("openApp").href = APP_LINK + window.location.search;
+      $("openApp").href = APP_LINK + originalSearch;
+    }
+
+    function onSignedIn(data, fallbackEmail) {
+      accessToken = data.token.access_token;
+      user = data.user;
+      $("userEmail").textContent = user.email || fallbackEmail || "";
+      hide("loginForm");
+      show("consent");
     }
 
     // ---- Step 1: sign in ----------------------------------------------------
@@ -156,17 +185,81 @@
           showError("loginError", "Invalid email or password.");
           return;
         }
-        accessToken = r.data.data.token.access_token;
-        user = r.data.data.user;
         $("password").value = "";
-        $("userEmail").textContent = user.email || $("email").value;
-        hide("loginForm");
-        show("consent");
+        onSignedIn(r.data.data, $("email").value);
       }).catch(function () {
         $("loginBtn").disabled = false;
         showError("loginError", "Could not connect. Please check your internet and try again.");
       });
     });
+
+    // ---- Step 1b: sign in with Google (authorization code + PKCE) ------------
+    function randomString(bytes) {
+      var a = new Uint8Array(bytes);
+      crypto.getRandomValues(a);
+      return base64url(a);
+    }
+    function base64url(bytes) {
+      var s = "";
+      for (var i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+      return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    }
+    function googleRedirectUri() { return window.location.origin + window.location.pathname; }
+
+    $("googleBtn").addEventListener("click", function () {
+      clearError("loginError");
+      var verifier = randomString(48);
+      var state = randomString(16);
+      crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)).then(function (hash) {
+        try {
+          sessionStorage.setItem("gsi", JSON.stringify({ state: state, verifier: verifier, search: window.location.search }));
+        } catch (e) {
+          showError("loginError", "Your browser is blocking storage. Please allow it and try again.");
+          return;
+        }
+        var url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+        url.searchParams.set("client_id", GOOGLE_CLIENT_ID);
+        url.searchParams.set("redirect_uri", googleRedirectUri());
+        url.searchParams.set("response_type", "code");
+        url.searchParams.set("scope", "openid email profile");
+        url.searchParams.set("state", state);
+        url.searchParams.set("code_challenge", base64url(new Uint8Array(hash)));
+        url.searchParams.set("code_challenge_method", "S256");
+        url.searchParams.set("prompt", "select_account");
+        window.location.href = url.toString();
+      }).catch(function () {
+        showError("loginError", "Could not start Google sign-in. Please try again.");
+      });
+    });
+
+    // Back from Google: swap the code for an Intlife session.
+    if (googleReturn) {
+      try { sessionStorage.removeItem("gsi"); } catch (e) {}
+      history.replaceState(null, "", googleRedirectUri() + originalSearch);
+      if (requestValid) {
+        if (googleParams.get("error")) {
+          showError("loginError", "Google sign-in was cancelled.");
+        } else {
+          $("googleBtn").disabled = true;
+          api("/api/v2/auth/google", {
+            code: googleParams.get("code"),
+            code_verifier: pending.verifier,
+            platform_os: "web",
+            redirect_uri: googleRedirectUri()
+          }).then(function (r) {
+            $("googleBtn").disabled = false;
+            if (!r.ok || !r.data || !r.data.data || !r.data.data.token) {
+              showError("loginError", "Google sign-in failed. Please try again.");
+              return;
+            }
+            onSignedIn(r.data.data);
+          }).catch(function () {
+            $("googleBtn").disabled = false;
+            showError("loginError", "Could not connect. Please check your internet and try again.");
+          });
+        }
+      }
+    }
 
     $("switchAccount").addEventListener("click", function () {
       accessToken = null;
